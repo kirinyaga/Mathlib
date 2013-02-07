@@ -1,0 +1,74 @@
+; --------------------------------------------
+; Title:   random
+; Author:  kirinyaga
+; Date:    11/06/2012
+; Version: 1.5 included calls in stack & timing
+; Version: 1.0
+; --------------------------------------------
+; Functions:
+; rand_lfsr (->A) 16bits pseudo-random using gallois LFSR
+; rand_lcg  (->A) 16bits pseudo-random using ANSI C LCG
+; --------------------------------------------
+
+
+;rand_lfsr
+; output every number twice per period.
+; return the higher 16bits out of 17.
+;
+; don't use in interrupts. If used in multithread, uncomment the iaq.
+;
+; out A: 0000-FFFF
+;
+; uses 1 word from stack
+; 13 words / 18 cycles
+#segment code
+rand_lfsr: ; return pseudo-random 0000-FFFF in A
+;		iaq 1
+		set a, [rand_lfsr_seed]
+		shr a, 1
+		bor a, [rand_lfsr_seed+1]
+		set [rand_lfsr_seed+1], ex
+		ifn ex, 0
+			xor a, [.poly]
+		set [rand_lfsr_seed], a
+;		iaq 0
+        set pc, pop
+#segment text
+.poly:  dat 0xb400
+#segment data
+rand_lfsr_seed:  dat 0xbe8c,0x8000 ; 1st is anything but zero. 2nd should be 8000 or 0000
+
+
+;rand_lcg
+; the standard pseudo-random generator from C.
+; return the higher 16bits out of 32.
+;
+; don't use in interrupts. If used in multithread, uncomment the iaq.
+;
+; out A: 0000-FFFF
+;
+; uses 2 word from stack
+; 24 words / 36 cycles
+#segment code
+rand_lcg:
+;		iaq 1
+		set push, [rand_lcg_seed]
+		mul peek, [.rnda]
+		set a, ex
+		mul [rand_lcg_seed+1], [.rnda]
+		add a, [rand_lcg_seed+1]
+		mul [rand_lcg_seed], [.rnda+1]
+		add a, [rand_lcg_seed]		; A:[SP] = seed*a
+		add peek, [.rndc]
+		adx a, [.rndc+1]			; A:[SP]+= c
+		set [rand_lcg_seed+1], a
+		set [rand_lcg_seed], pop	; seed = A:[SP]
+;		iaq 0
+		set pc, pop		
+#segment text
+.rnda:	dat 0x4e6d,0x41c6
+.rndc:	dat 0x3039,0x0000
+#segment data
+rand_lcg_seed: 	dat 0x67ed,0x1134
+
+

@@ -1,0 +1,193 @@
+; --------------------------------------------
+; Title:   trig
+; Author:  kirinyaga
+; Date:    11/06/2012
+; Version: 1.5 included calls in stack & timing
+; Version: 1.0
+; --------------------------------------------
+; Functions:
+; cos16 (A->A) 16bits cosine
+; sin16 (A->A) 16bits sine
+; atan216 (A,B->A) 16bits atan2 from a 2D point
+; acot216 (A,B->A) 16bits acot2 from a 2D point
+; --------------------------------------------
+
+
+;trig constants
+#define TWOPI		0x0000	; 0=2pi			(0°=360°)
+#define PI			0x8000	; pi 			(180°)
+#define HALFPI		0x4000	; pi/2			(90°)
+#define QURTPI		0x2000	; pi/4			(45°)
+#define NEGHALFPI	0xC000	; -pi/2=3pi/2	(-90°=270°)
+
+
+
+
+;cos16/sin16
+; 16bits cosine using linear interpolation over a lookup table
+; the last bit is wrong once every couple values
+;
+; in A: angle with 8000=+PI/-PI, 0=0/2PI
+; out A: cosine(angle) as FP16 so 4000=1, C000=-1
+;
+; uses 4 words from stack
+;
+; 297 words / 42-60 cycles
+#segment code
+cos16:		; entry point
+			add a, HALFPI		; cos(a)=sin(a+pi/2)
+;sin16
+sin16:		; entry point
+			set push, b
+			; map angle to 0..pi/2
+			set push, 0			; adjustment flag
+			ifl a, (PI+1)		; if angle <= +pi
+				add pc,	3		; to .aglpos
+.aglneg:	set peek, 1			; result will be negated
+			xor a, -1
+			add a, 1			; angle=-angle
+.aglpos:	ifl a, (HALFPI+1)	; if angle <= pi/2
+				add pc, 3		; to .testlerp
+.aglpi:		xor a, -1
+			add a, (PI+1)		; angle=pi-angle=-angle+pi
+			; do we need to lerp ?
+.testlerp:	set b, a
+			and b, LUTsinemask	; B=lerpidx=angle%64
+			shr a, LUTsineshift	; A=lutidx=angle/64
+			ifn b, 0			; if angle isn't in LUT
+				add pc, 3		; to .lerp
+			set a, [LUTsine+a]	; A=sine=LUT[lutidx]
+			add pc, 8			; to .adjust
+.lerp:		set push, [(LUTsine+1)+a]
+			set a, [LUTsine+a]	; A=LUT[lutidx]
+			sub peek, a			; [SP]=LUT[lutidx+1]-LUT[lutidx]
+			mul peek, b			; [SP]*=lerpidx
+			shr peek, LUTsineshift; [SP]/=64
+			add a, pop			; A=sine=LUT[i] + (LUT[i+1]-LUT[i]) * angle%64 / 64
+			; negate result if angle was negative
+.adjust:	ife peek, 0			; if angle > 0
+				add pc, 2		; to .end
+			xor a, -1
+			add a, 1			; sin=-sin
+.end:		set b, pop
+			set b, pop
+			set pc, pop
+#segment text
+#define LUTsineshift	6						; log2(step)
+#define LUTsinestep		64						; 1<<LUTshift
+#define LUTsinemask		(LUTsinestep-1)
+#define LUTsinesize		((HALFPI/LUTsinestep)+1)
+; sine(theta) from 0 to pi/2 in 64/65536 increment (257 words)
+LUTsine:
+dat 0x0000,0x0065,0x00C9,0x012E,0x0192,0x01F7,0x025B,0x02C0,0x0324,0x0388,0x03ED,0x0451,0x04B5,0x051A,0x057E,0x05E2
+dat 0x0646,0x06AA,0x070E,0x0772,0x07D6,0x0839,0x089D,0x0901,0x0964,0x09C7,0x0A2B,0x0A8E,0x0AF1,0x0B54,0x0BB7,0x0C1A
+dat 0x0C7C,0x0CDF,0x0D41,0x0DA4,0x0E06,0x0E68,0x0ECA,0x0F2B,0x0F8D,0x0FEE,0x1050,0x10B1,0x1112,0x1173,0x11D3,0x1234
+dat 0x1294,0x12F4,0x1354,0x13B4,0x1413,0x1473,0x14D2,0x1531,0x1590,0x15EE,0x164C,0x16AB,0x1709,0x1766,0x17C4,0x1821
+dat 0x187E,0x18DB,0x1937,0x1993,0x19EF,0x1A4B,0x1AA7,0x1B02,0x1B5D,0x1BB8,0x1C12,0x1C6C,0x1CC6,0x1D20,0x1D79,0x1DD3
+dat 0x1E2B,0x1E84,0x1EDC,0x1F34,0x1F8C,0x1FE3,0x203A,0x2091,0x20E7,0x213D,0x2193,0x21E8,0x223D,0x2292,0x22E7,0x233B
+dat 0x238E,0x23E2,0x2435,0x2488,0x24DA,0x252C,0x257E,0x25CF,0x2620,0x2671,0x26C1,0x2711,0x2760,0x27AF,0x27FE,0x284C
+dat 0x289A,0x28E7,0x2935,0x2981,0x29CE,0x2A1A,0x2A65,0x2AB0,0x2AFB,0x2B45,0x2B8F,0x2BD8,0x2C21,0x2C6A,0x2CB2,0x2CFA
+dat 0x2D41,0x2D88,0x2DCF,0x2E15,0x2E5A,0x2E9F,0x2EE4,0x2F28,0x2F6C,0x2FAF,0x2FF2,0x3034,0x3076,0x30B8,0x30F9,0x3139
+dat 0x3179,0x31B9,0x31F8,0x3236,0x3274,0x32B2,0x32EF,0x332C,0x3368,0x33A3,0x33DF,0x3419,0x3453,0x348D,0x34C6,0x34FF
+dat 0x3537,0x356E,0x35A5,0x35DC,0x3612,0x3648,0x367D,0x36B1,0x36E5,0x3718,0x374B,0x377E,0x37B0,0x37E1,0x3812,0x3842
+dat 0x3871,0x38A1,0x38CF,0x38FD,0x392B,0x3958,0x3984,0x39B0,0x39DB,0x3A06,0x3A30,0x3A59,0x3A82,0x3AAB,0x3AD3,0x3AFA
+dat 0x3B21,0x3B47,0x3B6D,0x3B92,0x3BB6,0x3BDA,0x3BFD,0x3C20,0x3C42,0x3C64,0x3C85,0x3CA5,0x3CC5,0x3CE4,0x3D03,0x3D21
+dat 0x3D3F,0x3D5B,0x3D78,0x3D93,0x3DAF,0x3DC9,0x3DE3,0x3DFC,0x3E15,0x3E2D,0x3E45,0x3E5C,0x3E72,0x3E88,0x3E9D,0x3EB1
+dat 0x3EC5,0x3ED8,0x3EEB,0x3EFD,0x3F0F,0x3F20,0x3F30,0x3F40,0x3F4F,0x3F5D,0x3F6B,0x3F78,0x3F85,0x3F91,0x3F9C,0x3FA7
+dat 0x3FB1,0x3FBB,0x3FC4,0x3FCC,0x3FD4,0x3FDB,0x3FE1,0x3FE7,0x3FEC,0x3FF1,0x3FF5,0x3FF8,0x3FFB,0x3FFD,0x3FFF,0x4000
+dat 0x4000
+
+
+
+
+
+;atan216/acot216
+; 16bits arctangent of 2D coordinates using linear interpolation over a lookup table
+; the last bit is wrong once every couple values
+; For arccotangent, exchange parameters
+;
+; in A,B: signed 16bits x,y (NOT y,x)
+; out A: angle from positive x axis as PI=8000
+;
+; uses 3 words from stack
+;
+; 126 words / 62-81 cycles
+#segment code
+;acot2
+acot216:	set push, a
+			set a, b
+			set b, pop			; acot2(x,y)=atan2(y,x) (better do it in calling code)
+;atan2
+atan216:	; entry point
+			set push, 0			; adjustment to be made at the end
+.negy:		ifa b, -1			; if y<0
+				add pc, 3		; else to .negx
+			xor b, -1
+			add b, 1			; y=-y
+			bor peek, 4			; will do a=-a
+.negx:		ifa a, -1			; if x<0
+				add pc, 3		; else to .bigy
+			xor a, -1
+			add a, 1			; x=-x
+			bor peek, 2			; will do a=pi-a
+.bigy:		ifg a, b			; if y>=x
+				add pc, 4		; else to .nully
+			set push, b
+			set b, a			; exchange 
+			set a, pop			; x & y
+			bor peek, 1			; will do a=pi/2-a
+			; at this point, we are sure that:
+			; x>=y , y>=0
+.nully:		ifg b, 0			; if y=0
+				add pc, 2		; else to .diag
+			set a, 0			; a=0 because x>=y=0
+			add pc, 25			; to .adjust
+.diag:		ifg a, b			; if x=y
+				add pc, 3		; else to .ratio
+			set a, QURTPI		; a=pi/4 
+			add pc, 20			; to .adjust
+			; now we are in the general case, with x>y
+.ratio:		div b, a
+			set b, ex			; B=r=fractional part(y/x)
+			; round the ratio
+			set push, a
+			shr peek, 1			; [SP]=x/2
+			mul a, b
+			add a, pop			; A=fractionnal(x*r + x/2)
+			shr a, 15			; if A>=0.5
+			add b, a			; 	r++
+.lerp:		set a, b
+			and b, LUTatanmask	; A=lerpidx=r%1024
+			shr a, LUTatanshift	; lutidx=r/1024
+			set push, [(LUTatan+1)+a]
+			set a, [LUTatan+a]	; A=LUT[lutidx]
+			sub peek, a			; [SP]=LUT[lutidx+1]-LUT[lutidx]
+			mul peek, b			; [SP]*=lerpidx
+			shr peek, LUTatanshift; [SP]/=1024
+			add a, pop			; A=atan=LUT[i] + (LUT[i+1]-LUT[i]) * r%1024 / 1024
+			; adjust the angle according to quadrant mod made at entry
+.adjust:	set b, pop
+			set b, [ADJatan+b]
+			ifb b, 1
+				xor a, -1
+			add a, b
+.end:		set pc, pop
+
+#segment text
+; adjustment to be added to angle at the end (+1:angle is negated 1st) (8 words)
+ADJatan:
+dat TWOPI,		(HALFPI+1),	(PI+1),	HALFPI
+dat	(TWOPI+1),	NEGHALFPI,	PI,		(NEGHALFPI+1)
+
+#define LUTatanshift	10						; log2(step)
+#define LUTatanstep		1024					; 1<<LUTshift
+#define LUTatanmask		(LUTatanstep-1)
+#define LUTatansize		((0x10000/LUTatanstep)+1)
+; atan(y/x) from 0 to 1 in 1024/65536 increment (65 words)
+LUTatan:
+dat 0x0000,0x00A3,0x0146,0x01E8,0x028B,0x032D,0x03CF,0x0470,0x0511,0x05B1,0x0651,0x06EF,0x078D,0x082A,0x08C6,0x0961
+dat 0x09FB,0x0A94,0x0B2C,0x0BC2,0x0C57,0x0CEB,0x0D7D,0x0E0E,0x0E9E,0x0F2C,0x0FB9,0x1044,0x10CE,0x1156,0x11DC,0x1261
+dat 0x12E4,0x1366,0x13E5,0x1464,0x14E0,0x155B,0x15D5,0x164C,0x16C2,0x1737,0x17A9,0x181B,0x188A,0x18F8,0x1964,0x19CF
+dat 0x1A38,0x1A9F,0x1B05,0x1B6A,0x1BCD,0x1C2E,0x1C8E,0x1CED,0x1D4A,0x1DA5,0x1DFF,0x1E58,0x1EB0,0x1F06,0x1F5A,0x1FAE
+dat 0x2000
+

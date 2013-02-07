@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<solution name="MathLib" path="E:\Projects\0x10c\MathLib\MathLib.10csln" currentFile="Env\env.10c">
+  <openFiles>
+    <file path="Env\env.10c" />
+    <file path="Env\vecdsp.10c" />
+    <file path="Lib\orbit.10c" />
+    <file path="Lib\mem.10c" />
+    <file path="Lib\coord.10c" />
+    <file path="Lib\trig.10c" />
+    <file path="Env\lemdsp.10c" />
+    <file path="Lib\sqrt.10c" />
+    <file path="Lib\fp16.10c" />
+    <file path="Lib\random.10c" />
+  </openFiles>
+</solution>

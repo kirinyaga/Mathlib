@@ -1,0 +1,224 @@
+; --------------------------------------------
+; Title:   mem
+; Author:  kirinyaga
+; Date:    15/06/2012
+; Version: 1.5 included calls in stack & timing
+; Version: 1.1 added functions
+; Version: 1.0
+; --------------------------------------------
+; Functions:
+; memset (A,B,[SP]->[A]) fill a buffer
+; memsb  (A,B,[SP],[SP]->[A]) AND/OR a buffer
+; memor  (A,B,[SP]->[A]) OR a buffer
+; memxor (A,B,[SP]->[A]) XOR a buffer
+; memcpy (A,B,[SP]->[B]) copy a buffer
+; --------------------------------------------
+
+
+; memset
+; fill a memory area with a value.
+; code by dzienny from 0x10cforum.com
+;
+; input A,B,[SP+1]: address, length, value
+;
+; clobbers A,B
+;
+; uses 6 words on stack
+;
+; 38 words / 30 + len*1.75 cycles
+#segment code
+memset:
+		set push, i
+		set push, j
+		set push, pick 3
+		; init
+		set i, a		; I=ptr1=ptr
+		set j, a		; J=ptr2=ptr
+		set a, b		; A=len
+		shr b, 1		; B=len/2
+		add j, b		; ptr2=ptr+len/2
+		set b, j
+		ifb a, 1
+			add b, 1	; B=limit=ptr2+(len&1)
+		and a, 15		; A=len%16
+		set push, 16
+		sub peek, a		; [SP]=16-B
+		add pc, pop
+.loop:  set [i], peek
+		sti [j], peek
+		set [i], peek
+		sti [j], peek
+		set [i], peek
+		sti [j], peek
+		set [i], peek
+		sti [j], peek
+		set [i], peek
+		sti [j], peek
+		set [i], peek
+		sti [j], peek
+		set [i], peek
+		sti [j], peek
+		set [i], peek
+		sti [j], peek
+.pool:	ifl i, b
+			sub pc, 18
+.end:	set j, pop
+		set j, pop
+		set i, pop
+		set pc, pop
+
+		
+; memsb
+; AND then OR a memory area with a mask & a value.
+;
+; input A,B,[SP+1],[SP+2]: address, length, mask, value
+;
+; clobbers A,B
+;
+; uses 6 words on stack
+;
+; 29 words / 31 + len*4.5 cycles
+#segment code
+memsb:
+		set push, i
+		set push, j
+		set push, c
+		; init
+		ife b, 0
+			set pc, .end
+		set i, a		; I=ptr1=ptr
+		set j, a		; J=ptr2=ptr
+		set a, b		; A=len
+		shr b, 1		; B=len/2
+		add j, b		; ptr2=ptr+len/2
+		set b, j
+		ifc a, 1
+			sub b, 1	; B=limit=ptr2+!(len&1)
+		set c, pick 4	; C=mask
+		set a, pick 5	; A=value
+.loop:	and [i], c
+		bor [i], a
+		and [j], c
+		bor [j], a
+		ifl i, b
+			sti pc, .loop
+.end:	set c, pop
+		set j, pop
+		set i, pop
+		set pc, pop
+; memor
+; OR a memory area with a value.
+;
+; input A,B,[SP+1]: address, length, value
+;
+; clobbers A,B
+;
+; uses 4 words on stack
+;
+; 21 words / 24 + len*3.5 cycles
+#segment code
+memor:
+		set push, i
+		set push, j
+		; init
+		ife b, 0
+			set pc, .end
+		set i, a		; I=ptr1=ptr
+		set j, a		; J=ptr2=ptr
+		set a, b		; A=len
+		shr b, 1		; B=len/2
+		add j, b		; ptr2=ptr+len/2
+		set b, j
+		ifb a, 1
+			add b, 1	; B=limit=ptr2+(len&1)
+		set a, pick 3	; A=value
+.loop:	bor [i], a
+		bor [j], a
+		ifl i, b
+			sti pc, .loop
+.end:	set j, pop
+		set i, pop
+		set pc, pop
+
+
+; memxor
+; XOR a memory area with a value.
+;
+; input A,B,[SP+1]: address, length, value
+;
+; clobbers A,B
+;
+; uses 4 words on stack
+;
+; 21 words / 24 + len*3.5 cycles
+#segment code
+memxor:
+		set push, i
+		set push, j
+		; init
+		ife b, 0
+			set pc, .end
+		set i, a		; I=ptr1=ptr
+		set j, a		; J=ptr2=ptr
+		set a, b		; A=len
+		shr b, 1		; B=len/2
+		add j, b		; ptr2=ptr+len/2
+		set b, j
+		ifb a, 1
+			add b, 1	; B=limit=ptr2+(len&1)
+		set a, pick 3	; A=value
+.loop:	xor [i], a
+		xor [j], a
+		ifl i, b
+			sti pc, .loop
+.end:	set j, pop
+		set i, pop
+		set pc, pop
+
+
+; memcpy
+; copy a memory area to another.
+;
+; input A,B,[SP+1]: source address, target address, length
+;
+; clobbers A,B
+;
+; uses 4 words on stack
+;
+; 34 words / 22 + len*2.25 cycles
+#segment code
+memcpy:
+		set push, i
+		set push, j
+		; init
+		set i, a		; I=src
+		set j, b		; J=tgt
+		set b, pick 3
+		set a, b		; A=len
+		add b, i		; B=src+len
+		and a, 15		; A=len%16
+		xor a, -1
+		set ex, 17
+		adx pc, a		; PC+= 16-A
+.loop:  sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+		sti [j], [i]
+.pool:	ifl i, b
+			sub pc, 18
+.end:	set j, pop
+		set i, pop
+		set pc, pop
+

@@ -1,0 +1,300 @@
+; --------------------------------------------
+; Title:   vecdsp
+; Author:  kirinyaga
+; Date:    23/06/2012
+; Version: 1.5 included calls in stack & timing
+; Version: 1.0
+; --------------------------------------------
+; Functions:
+; init_vecdsp () POST
+; drawing () handler
+; _DKVD_swapbuffers (->) display the working buffer
+; drwship (A,B->A) draw a ship to working buffer
+; drwsphere (A,B->A) draw a sphere to working buffer
+; Memory:
+; 1027 words
+; --------------------------------------------
+
+
+
+; DevKit Vector Display
+#define DEV_DKVD_OFFMODE			0
+#define DEV_DKVD_TESTMODE			1
+#define DEV_DKVD_USERMODE			2
+#define DEV_DKVD_SETPOS_FLAREON		3	; pos in XYZ
+#define DEV_DKVD_SETPOS_FLAREOFF	4	; "
+#define DEV_DKVD_SETNOISE			5	; B=0000-FFFF
+#define DEV_DKVD_SETROTATION		6	; B=0000-FFFF
+#define DEV_DKVD_GETROTATION		7	; in B
+#define DEV_DKVD_AUTOROTATION		8	; B=+- deg/s
+
+
+; init_vecdsp
+; called by POST
+#segment boot
+init_vecdsp:set a, DEV_DKVD_USERMODE
+			hwi i
+			set a, DEV_DKVD_AUTOROTATION
+			set b, 72
+			hwi i
+			set [vecdsp_id], i
+			set pc, peek
+
+
+
+; called by interrupt
+; It expects to find @segs a list of positions to draw
+; Each entry is 4 words:
+;	x,y,z,action
+; with action being:
+;	DKVD_ON		disable drawing after this move
+;	DKVD_OFF	enable drawing after this move (default at beginning)
+;	DKVD_MOVE	just move
+;	DKVD_END	done
+;	DKVD_FLARE	done, mark last position
+; If timer is on 10Hz, it can draw about 700 lines max. At 60Hz, 128 lines.
+; cycles: 52+12*position
+#segment code
+drawing:	set push, x
+			set push, y
+			set push, z
+			set push, b
+			set push, i
+			set push, j
+			; set noise to 0
+			set a, DEV_DKVD_SETNOISE
+			set b, 0
+			hwi [vecdsp_id]
+			; loop
+			set j, [vecdsp_buf]
+			set b, [vecdsp_id]
+DKVD_OFF:	set a, DEV_DKVD_SETPOS_FLAREOFF
+			set x, 0
+			set z, 0
+			set y, 0
+			hwi b
+			add pc, 1
+DKVD_ON:	set a, DEV_DKVD_SETPOS_FLAREON
+DKVD_MOVE:	sti x, [j]
+			sti z, [j]
+			sti y, [j]
+			hwi b
+.pool:		sti pc, [j]
+DKVD_END:	; turn flare off & move to origin
+			set a, DEV_DKVD_SETPOS_FLAREOFF
+			set x, 0
+			set z, 0
+			set y, 0
+			hwi b
+DKVD_FLARE: ; leave flare on at last position
+			set a, DEV_DKVD_SETNOISE
+			set b, 0x2000
+			hwi [vecdsp_id]
+.end:		set [vecdsp_flg], 1
+			set j, pop
+			set i, pop
+			set b, pop
+			set z, pop
+			set y, pop
+			set x, pop
+			set pc, pop
+
+
+; exchange the active & working buffers
+; interrupts are temporarily queued during exchange
+; 1 words on stack / 9 words / 11 cycles
+#macro _DKVD_swapbuffers() {
+			iaq 1
+			set push, [vecdsp_buf]
+			set [vecdsp_buf], [vecdsp_wrk]
+			set [vecdsp_wrk], pop
+			iaq 0
+}
+
+
+#segment data
+vecdsp_id:	dat 0
+
+vecdsp_buf:	dat segs			; active displayed buffer
+vecdsp_wrk:	dat segs2			; working buffer
+vecdsp_flg:	dat 0				; drawing flag
+
+segs:		dat 0,0,0,DKVD_END
+			reserve (4*511)
+segs2:		dat 0,0,0,DKVD_END
+			reserve (4*511)
+
+
+; --------------------------------------------
+; Drawing Primitives
+; in A: object size
+; in B: ptr to working buffer next entry
+; out A: ptr to working buffer next entry
+; --------------------------------------------
+
+
+; drwship
+; draw a simple ship of width=4*size, thickness=2*size, length=7*size
+; 4 words on stack / 69 words / 250 cycles
+#segment code
+drwship:	set push, i
+			set push, j
+			set i, b
+			set j, shipsegs
+			set b, DRWSHP_NBSEGS
+			shl b, 2
+			add b, j
+.loop:		set push, [j]
+			mli peek, a
+			sti [i], pop	; x = size*[0]
+			set push, [j]
+			mli peek, a
+			sti [i], pop	; y = size*[1]
+			set push, [j]
+			mli peek, a
+			sti [i], pop	; z = size*[2]
+			sti [i], [j]	; op = [3]
+			ifl j, b
+				set pc, .loop
+			set a, i
+.end:		set j, pop
+			set i, pop
+			set pc, pop
+#segment text
+#define DRWSHP_NBSEGS	11
+shipsegs:
+dat	-2,-3, 0,DKVD_ON,	 0,-3, 1,DKVD_MOVE,	 2,-3, 0,DKVD_MOVE,	  0,-3,-1,DKVD_MOVE,	-2,-3, 0,DKVD_MOVE
+dat  0, 4, 0,DKVD_MOVE,	 2,-3, 0,DKVD_MOVE,	 0,-3, 1,DKVD_MOVE,   0, 4, 0,DKVD_MOVE,	 0,-3,-1,DKVD_MOVE
+dat -2,-3, 0,DKVD_END
+
+
+; drwsphere
+; draw a 7 circles sphere of radius=size
+; 16 words on stack / 178 words / 9500 cycles
+#segment code
+drwsphere:	set push, i
+			set push, j
+			set push, c
+			set i, b
+			; go to top
+			sti [i], 0
+			sti [i], 0
+			sti [i], a	; (0,0,r)
+			sti [i], DKVD_ON
+			; draw 4 vertical circles
+			set c, (PI/4)
+			set push, 0			; theta=0
+.loopv:		set b, peek
+			jsr drwcircv
+			add peek, c
+			ifn peek, PI
+				set pc, .loopv
+			; back to top
+			sti [i], 0
+			sti [i], 0
+			sti [i], a	; (0,0,r)
+			sti [i], DKVD_MOVE
+			; draw 3 horizontal circles
+			set peek, c
+.looph:		set b, peek
+			jsr drwcirch
+			add peek, c
+			ifn peek, PI
+				set pc, .looph
+			; to bottom
+			sti [i], 0
+			sti [i], 0
+			mli a, -1
+			sti [i], a	; (0,0,r)
+			sti [i], DKVD_END
+			; set ptr
+			set b, pop
+			set a, i
+.end:		set c, pop
+			set j, pop
+			set i, pop
+			set pc, pop
+drwcircv:	; A=r, B=theta, C=ang_inc, I=ptr
+			set push, x
+			set push, y
+			set push, z
+			set push, j
+			set push, a
+			set x, a
+			set y, a
+			set z, a			; x=y=z=r
+			set a, b
+			jsr cos16
+			_mlifp16(x, a)		; x=r*cos(th)
+			set a, b
+			jsr sin16
+			_mlifp16(y, a)		; y=r*sin(th)
+			set b, 0			; ph=0
+.loop:		set a, b
+			jsr sin16
+			set push, a
+			set [i], x
+			_mlifp16([i], a)	; x*=sin(ph)
+			add i, 1
+			set a, pop
+			set [i], y
+			_mlifp16([i], a)	; y*=sin(ph)
+			add i, 1
+			set a, b
+			jsr cos16
+			set [i], z
+			_mlifp16([i], a)	; z*=cos(ph)
+			add i, 1
+			sti [i], DKVD_MOVE
+			add b, c			; ph+=ang_inc
+.pool:		ifn b, TWOPI
+				set pc, .loop
+.end:		set a, pop
+			set j, pop
+			set z, pop
+			set y, pop
+			set x, pop
+			set pc, pop
+drwcirch:	; A=r, B=phi, C=ang_inc, I=ptr
+			set push, x
+			set push, y
+			set push, z
+			set push, j
+			set push, a
+			set x, a
+			set z, a
+			set a, b
+			jsr sin16
+			_mlifp16(x, a)		; x=r*sin(ph)
+			set y, x			; y=r*sin(ph)
+			set a, b
+			jsr cos16
+			_mlifp16(z, a)		; z=r*cos(ph)
+			set push, TWOPI		; limit
+			set b, 0			; th=0
+.loop:		set a, b
+			jsr cos16
+			set [i], x
+			_mlifp16([i], a)	; x*=cos(th)
+			add i, 1
+			set a, b
+			jsr sin16
+			set [i], y
+			_mlifp16([i], a)	; y*=sin(th)
+			add i, 1
+			sti [i], z
+			sti [i], DKVD_MOVE
+			add b, c			; th+=ang_inc
+.pool:		ifn b, peek
+				set pc, .loop
+			ifn peek, TWOPI
+				set pc, .end
+			set peek, c
+			set pc, .loop
+.end:		set a, pop
+			set a, pop
+			set j, pop
+			set z, pop
+			set y, pop
+			set x, pop
+			set pc, pop

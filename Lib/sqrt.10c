@@ -1,0 +1,366 @@
+; --------------------------------------------
+; Title:   sqrt
+; Author:  kirinyaga
+; Date:    11/06/2012
+; Version: 1.5 included calls in stack & timing
+; Version: 1.0
+; --------------------------------------------
+; Functions:
+; sqrt16 (A->A) 16bits square root
+; sqrt32 (B:A->A) 32bits square root
+; dist216v (A,B->A) 2D 16bits distance from origin (2D vector length)
+; dist316v ([A],[B]->A) 3D 16bits distance from origin (3D vector length)
+; dist216 ([A],[B]->A) 2D 16bits distance between 2 points
+; dist316 ([A],[B]->A) 3D 16bits distance between 2 points
+; --------------------------------------------
+
+;sqrt16
+; code by Mrrl from 0x10cforum, modified for rounding.
+;
+; in  A: number 0-FFFF
+; out A: squared root (rounded to nearest integer)
+;
+; uses 3 words from stack
+;
+; 43 words / 61-68 cycles
+#segment code
+sqrt16:
+			IFE A, 0
+				SET PC, POP
+			SET PUSH, B
+			SET PUSH, A		; save a
+			SET B, 1		; cf=1
+			;scale by 256		
+.scale256:	IFL A, 256		; if a>=256
+				ADD PC, 2
+			SHR A, 8		; a/= 256
+			SHL B, 4		; cf*= 16
+			;scale by 16
+.scale16:	IFL A, 16		; if a>=16
+				ADD PC, 2
+			SHR A, 4		; a/= 16
+			SHL B, 2		; cf*= 4
+			;get first guess
+.guess:		ADD A, 4
+			MUL B, A
+			SHR B, 2		; b=guess = (a+4)*cf/4
+			;1st iteration
+			SET A, PEEK
+			DIV A, B
+			ADD B, A
+			SHR B, 1		; guess = (guess + a/guess)/2
+			;2nd iteration
+			SET A, PEEK
+			DIV A, B
+			ADD B, A
+			SHR B, 1
+			;3rd iteration
+			SET A, PEEK
+			DIV A, B
+			ADD A, B
+			SHR A, 1		; a=res=guess
+			;round result down
+			SET B, A
+			MUL B, A
+			SUB B, A
+			IFL B, PEEK		; if res^2 - res > a
+				ADD PC, 2
+			SUB A, 1		; res--
+			ADD PC, 4
+			;round it up
+.roundup:	ADD B, A
+			ADD B, A
+			IFL B, PEEK		; if res^2 - res < a
+				ADD A, 1	; res++
+			;return
+.end:		SET B, POP
+			SET B, POP
+			SET PC,POP
+
+
+
+
+
+;dist216
+; calculates distance between 2 points given their 2D coordinates.
+; You will notice the maximum possible distance is 16A08 
+; (from (8000,8000) to (7FFF,7FFF)), and that's 17bits.
+; Algorithm will fail if distance is more than FFFF (unsigned)
+;
+; in A,B: address of signed 16 bits (x,y) for p0 & p1
+; out A: unsigned 16 bits distance from ([A],[A+1]) to ([B],[B+1])
+;
+; B clobbered
+; uses 9 words from stack
+;
+; 25+112 words / 157-196 cycles
+#segment code
+dist216:
+			SET PUSH, I
+			SET PUSH, J
+			SET I, A
+			SET J, B
+			; calc dx*dx
+			SET A, [I]
+			SUB A, [J]		; A=dx=x0-x1
+			IFA [I], [J]	; if dx>0
+				ADD PC, 2	; skip negation
+			XOR A, -1
+			ADD A, 1		; dx=-dx
+			MUL A, A
+			STI B, EX		; B:A=dx*dx
+			; calc dy*dy
+			SET PUSH, [I]
+			SUB PEEK, [J]	; [SP]=dy=y0-y1
+			IFA [I], [J]	; if dy>0
+				ADD PC, 2	; skip negation
+			XOR PEEK, -1
+			ADD PEEK, 1		; dy=-dy
+			MUL PEEK, PEEK
+			ADD B, EX
+			ADD A, POP
+			ADD B, EX		; B:A+=dy*dy
+			SET J, POP
+			SET I, POP
+			SET PC, sqrt32	; B:A is in proper format, jump to sqrt32
+
+
+
+
+;dist216v
+; calculates distance of a point from origin given its 2D coordinates
+; or a 2D vector norm.
+;
+; in A,B: (x,y) signed 16 bits coordinates
+; out A: unsigned 16 bits distance from (0,0) to (x,y)
+;
+; B clobbered
+; uses 6 words from stack
+;
+; 9+112 words / 133-172 cycles
+#segment code
+dist216v:
+	SET PUSH, B
+	MLI A, A
+	SET B, EX
+	MLI PEEK, PEEK
+	ADD B, EX
+	ADD A, POP
+	ADD B, EX
+	SET PC, sqrt32
+
+
+
+
+;dist316
+; calculates distance between 2 points given their 3D coordinates.
+; You will notice the maximum possible distance is 1BB68 
+; (from (8000,8000,8000) to (7FFF,7FFF,7FFF)), and that's 17bits.
+; Algorithm will fail if distance is more than FFFF (unsigned)
+;
+; in A,B: address of signed 16 bits (x,y,z) for p0 & p1
+; out A: unsigned 16 bits distance from ([A],[A+1],[A+2]) to ([B],[B+1],[B+2])
+;
+; B clobbered
+; uses 9 words from stack
+;
+; 37+112 words / 176-215 cycles
+#segment code
+dist316:
+			SET PUSH, I
+			SET PUSH, J
+			SET I, A
+			SET J, B
+			; calc dx*dx
+			SET A, [I]
+			SUB A, [J]		; A=dx=x0-x1
+			IFA [I], [J]	; if dx>0
+				ADD PC, 2	; skip negation
+			XOR A, -1
+			ADD A, 1		; dx=-dx
+			MUL A, A
+			STI B, EX		; B:A=dx*dx
+			; calc dy*dy
+			SET PUSH, [I]
+			SUB PEEK, [J]	; [SP]=dy=y0-y1
+			IFA [I], [J]	; if dy>0
+				ADD PC, 2	; skip negation
+			XOR PEEK, -1
+			ADD PEEK, 1		; dy=-dy
+			MUL PEEK, PEEK
+			ADD B, EX
+			ADD A, POP
+			ADD B, EX		; B:A+=dy*dy
+			; calc dz*dz
+			STI PUSH, [I+1]
+			SUB PEEK, [J]	; [SP]=dz=z0-z1
+			IFA [I], [J]	; if dz>0
+				ADD PC, 2	; skip negation
+			XOR PEEK, -1
+			ADD PEEK, 1		; dz=-dz
+			MUL PEEK, PEEK
+			ADD B, EX
+			ADD A, POP
+			ADD B, EX		; B:A+=dz*dz
+			SET J, POP
+			SET I, POP
+			SET PC, sqrt32	; B:A is in proper format, jump to sqrt32
+
+
+
+
+;dist316v
+; calculates distance of a point from origin given its 3D coordinates
+; or a 3D vector norm.
+;
+; in A,B,[SP+1]: (x,y,z) signed 16 bits coordinates
+; out A: unsigned 16 bits distance from (0,0,0) to (x,y,z)
+;
+; B clobbered
+; caller clean the stack
+; uses 7 words from stack
+;
+; 13+112 words / 141-180 cycles
+#segment code
+dist316v:
+			SET PUSH, B			; [SP]=B=y
+			MLI A, A
+			SET B, EX			; B:A=x*x
+			MLI PEEK, PEEK
+			ADD B, EX
+			ADD A, POP
+			ADD B, EX			; B:A+=y*y
+			SET PUSH, PICK 1	; [SP]=z
+			MLI PEEK, PEEK
+			ADD B, EX
+			ADD A, POP
+			ADD B, EX			; B:A+=z*z
+			; A & B are filled, just continue to sqrt32 code
+;sqrt32
+; calculates the 16bits square root of a 32bits number
+;
+; in B:A: number (max FFFF0000, that is 0FFFF^2 + 0FFFE)
+; out A: squared root (rounded to nearest integer)
+;
+; B clobbered
+; uses 6 words from stack
+;
+; 112 words / 119-158 cycles
+#segment code
+sqrt32:
+			IFE A, 0
+				IFE B, 0
+					SET PC, POP
+			SET PUSH, Z
+			SET PUSH, Y
+			SET PUSH, X
+			SET PUSH, C
+			SET C, B
+			SET PUSH, A		; save ba in CPEEK
+			SET X, 1		; cf=1
+			;scale by 0x1000		
+.scale1000:	IFE B, 0		; if ba>=65536
+				ADD PC, 2
+			SET A, B		; ba/= 65536
+			SHL X, 8		; cf*= 256
+			;scale by 0x100		
+.scale100:	IFL A, 256		; if ba>=256
+				ADD PC, 2
+			SHR A, 8		; ba/= 256
+			SHL X, 4		; cf*= 16
+			;scale by 0x10
+.scale10:	IFL A, 16		; if ba>=16
+				ADD PC, 2
+			SHR A, 4		; ba/= 16
+			SHL X, 2		; cf*= 4
+			;get first guess
+.guess:		ADD A, 4
+			MUL A, X
+			SET B, EX
+			SHR A, 2
+			SHR B, 2
+			BOR A, EX		; BA=guess = (ba+4)*cf/4
+			;1st iteration
+			SET X, PEEK
+			SET Y, C		; YX = ba
+			SET Z, A		; Z=divisor=A
+			IFE B, 0		; if B=1, divide dividend & divisor by 2
+				ADD PC, 6
+			SHR X, 1
+			SHR Y, 1
+			BOR X, EX		; 	YX/= 2
+			SHR Z, 1
+			BOR Z, 0x8000	; 	BZ/= 2
+			DIV X, Z
+			DIV Y, Z		; YX/= Z
+			ADX A, X
+			ADX B, Y		; BA+= YX
+			SHR A, 1
+			SHR B, 1
+			BOR A, EX		; guess = (guess + ba/guess)/2
+			;2nd iteration
+			SET X, PEEK
+			SET Y, C
+			SET Z, A
+			IFE B, 0
+				ADD PC, 6
+			SHR X, 1
+			SHR Y, 1
+			BOR X, EX
+			SHR Z, 1
+			BOR Z, 0x8000
+			DIV X, Z
+			DIV Y, Z
+			ADX A, X
+			ADX B, Y
+			SHR A, 1
+			SHR B, 1
+			BOR A, EX
+			;3rd iteration
+			SET X, PEEK
+			SET Y, C
+			SET Z, A
+			IFE B, 0
+				ADD PC, 6
+			SHR X, 1
+			SHR Y, 1
+			BOR X, EX
+			SHR Z, 1
+			BOR Z, 0x8000
+			DIV X, Z
+			DIV Y, Z
+			ADX A, X
+			ADX B, Y
+			SHR A, 1
+			SHR B, 1
+			BOR A, EX		;BA=res=guess
+			;test overflow
+			IFE B, 0
+				ADD PC,2
+			SET A, -1
+			ADD PC, 16		;JMP .end
+			;round result down
+.rounddown:	SET X, A
+			SUB X, 1
+			MUL X, A
+			SET Y, EX		;res^2 - res
+			SUB X, PEEK
+			SBX Y, C		;-ba
+			IFU Y, 0		; if res^2 - res > ba
+				ADD PC, 2
+			SUB A, 1		; res--
+			ADD PC, 6		;JMP .end
+			;round it up
+.roundup:	ADD X, A
+			ADD Y, EX
+			ADD X, A
+			ADD Y, EX
+			IFU Y, 0		; if res^2 - res < a
+				ADD A, 1	; res++
+			;return
+.end:		SET C, POP
+			SET C, POP
+			SET X, POP
+			SET Y, POP
+			SET Z, POP
+			SET PC,POP

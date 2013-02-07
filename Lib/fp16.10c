@@ -1,0 +1,201 @@
+; --------------------------------------------
+; Title:   fp16
+; Author:  kirinyaga
+; Date:    11/06/2012
+; Version: 1.5 included calls in stack & timing
+; Version: 1.3 added square & improved _mlifp16s
+; Version: 1.2 fixed mul/mli mistake
+; Version: 1.1 added macros
+; Version: 1.0
+; --------------------------------------------
+; Functions:
+; mlifp16 (A,B->A) signed fixed point multiplication
+; mulfp16 (A,B->A) unsigned fixed point multiplication
+; sqifp16 (A->A) signed fixed point square
+; dvifp16 (A,B->B:A) signed fixed point division
+; dvii16 (A,B->A) signed int division to fixed point
+; divfp16 (A,B->B:A) unsigned fixed point division
+; --------------------------------------------
+
+
+; fp16 is a fixed point numbers on 16 bits.
+; msb (bit15) is sign bit, bit14 is unit, the 14 following bits (13-0) are fractionnal.
+; negative fp16 are 2's complemented.
+; you can store from -2.0 (8000) to +1.99994 (7FFF)
+; with the nearest from 0 being -0.00006 (FFFF) & +0.00006 (0001).
+;
+; the result of addition/substraction of two [-1,1] fp16 is also a fp16 : use regular ADD/SUB
+; the result of addition/substraction of two fp16 is a fp17(3.14) : beware.
+; the result of addition/substraction of one fp16 and sint16 is a fp32 : beware.
+; the result of multiplication (using below routines) by a [-1,1] fp16 is of the type of second operand.
+; the result of multiplication (using below routines) by a fp16 is a sint17 or fp17(3.14) depending of second operand : beware.
+; the result of division of a fp16 by a sint16 is a fp16 : use regular DIV/DVI
+; the result of division by a fp16 is a sint30 or a fp30(16.14), depending of the type of dividend : beware.
+
+
+;fp16 fixed point constants
+#define ONE			0x4000
+#define MINUSONE	0xC000
+#define ONEHALF		0x2000
+#define ONETHIRD	0x1555
+#define HALFPI_FP16	0x6488
+
+
+;mlifp16
+; multiplication involving either two fp16 (result is also a fp16) or 
+; one fp16 and a 16bits relative integer (result is a sint16 : a signed 16bits integer).
+;
+; in A,B: fp16/sint16 numbers
+; out A: fp16/sint16 result
+;
+; B clobbered
+; uses 1 words from stack
+;
+; 6 words / 11 cycles
+#segment code
+mlifp16:
+	mli a, b
+	set b, ex		; B:A=A*B
+	shr a, 14
+	asr b, 14
+	bor a, ex		; B:A=B:A>>14
+	set pc, pop
+; macro version : 5+3m1+3m2 words / 6+3m1+3m2 cycles
+; m2 is clobbered !
+#macro _mlifp16(m1,m2) {
+	mli m1, m2
+	set m2, ex		; B:A=A*B
+	shr m1, 14
+	asr m2, 14
+	bor m1, ex		; B:A=B:A>>14
+}
+; m2-invariant version : 6+3m1+1m2 words / 7+3m1+1m2 cycles
+#macro _mlifp16s(m1,m2) {
+	mli m1, m2
+	set push, ex		; B:A=A*B
+	shr m1, 14
+	asr peek, 14
+	bor m1, ex		; B:A=B:A>>14
+	set ex, pop
+}
+
+;sqifp16
+; square a fp16 (result is also a fp16)
+;
+; in A: fp16 number
+; out A: fp16 result
+;
+; uses 1 words from stack
+; macro version : 6+4m words / 7+4m cycles
+#macro _sqifp16(m) {
+	mli m, m
+	set push, ex	; [SP]:A=A*B
+	shr m, 14
+	asr peek, 14
+	bor m, ex		; [SP]:A=[SP]:A>>14
+	set ex, pop		; clean stack
+}
+
+
+;mulfp16
+; multiplication involving either two positive fp16 (result is also a fp16) or 
+; one positive fp16 and a 16bits integer (result is an int16 : an unsigned 16bits integer).
+;
+; in A,B: fp16/int16 numbers
+; out A: fp16/int16 result
+;
+; B clobbered
+; uses 1 word from stack
+;
+; 6 words / 11 cycles
+#segment code
+mulfp16:
+	mul a, b
+	set b, ex
+	shr a, 14
+	shr b, 14
+	bor a, ex
+	set pc, pop
+; macro version : 5+3m1+3m2 words / 6+3m1+3m2 cycles
+; m2 is clobbered !
+#macro _mulfp16(m1,m2) {
+	mul m1, m2
+	set m2, ex
+	shr m1, 14
+	shr m2, 14
+	bor m1, ex
+}
+; m2-invariant version : 7+3m1+5m2 words / 8+3m1+5m2 cycles
+#macro _mulfp16s(m1,m2) {
+	set push, m2
+	mul m1, m2
+	set m2, ex
+	shr m1, 14
+	shr m2, 14
+	bor m1, ex
+	set m2, pop
+}
+
+;dvifp16
+; division involving either two fp16 (result is a fp32) or 
+; one fp16 and a 16bits relative integer (result is a sint16 : a signed 16bits integer).
+;
+; in A,B: fp16/sint16 numbers
+; out   A: fp16/sint16 result
+; out B:A: fp32/sint32 result
+;
+; uses 2 word from stack
+;
+; 8 words / 14 cycles
+#segment code
+dvifp16:
+	set push, a
+	dvi peek, b
+	set a, ex		; [SP]:A=A/B
+	shr a, 2
+	asr peek, 2
+	bor a, ex		; [SP]:A=[SP]:A>>(16-14)
+	set b, pop		; B:A=[SP]:A
+	set pc, pop
+
+
+;dvii16
+; division between two sint16 leading to a fp16 result.
+; truncated if result >=2 or <-2
+;
+; in A,B: sint16 numbers
+; out   A: fp16 result
+;
+; uses 1 word from stack
+;
+; 5+3m1+m2 words / 7+3m1+m2 cycles
+#macro _dvii16(m1,m2) {
+	dvi m1, m2
+	set push, ex
+	shl m1, 14
+	shr peek, 2
+	bor m1, pop
+}
+
+
+;divfp16
+; division involving either two positive fp16 (result is a fp32) or 
+; one positive fp16 and a 16bits integer (result is an int16 : an unsigned 16bits integer).
+;
+; in A,B: fp16/int16 numbers
+; out   A: fp16/int16 result
+; out B:A: fp32/int32 result
+;
+; uses 2 word from stack
+;
+; 8 words / 14 cycles
+#segment code
+divfp16:
+	set push, a
+	div peek, b
+	set a, ex
+	shr a, 2
+	shr peek, 2
+	bor a, ex
+	set b, pop
+	set pc, pop

@@ -1,0 +1,258 @@
+; --------------------------------------------
+; Title:   coord
+; Author:  kirinyaga
+; Date:    13/06/2012
+; Version: 1.5 included calls in stack & timing
+; Version: 1.1 added pe2s16
+; Version: 1.0
+; --------------------------------------------
+; Functions:
+; c2p16 (A,B->A,B) 16bits cartesian to polar conversion
+; p2c16 (A,B->A,B) 16bits polar to cartesian conversion
+; c2s16 ([A],B->[B]) 16bits cartesian to spherical conversion
+; s2c16 ([A],B->[B]) 16bits spherical to cartesian conversion
+; pe2s16 ([A],B,[[SP+1]]->[B]) 16bits polar to spherical conversion through euler angles
+; pe2s16pc ([A],B,[[SP+1]]->[B]) precalculated version
+; --------------------------------------------
+
+
+
+;c2p16
+; 2D cartesian to polar coordinates conversion
+;
+; in  A,B: x,y signed 16bits cartesian coordinates
+; out A,B: r,theta 16bits polar coordinates
+;
+; uses 10 words from stack
+;
+; 13 words / 200-260 cycles
+#segment code
+c2p16:		set push, c
+			set push, b
+			set push, a
+			; get theta
+			jsr atan216
+			set c, a
+			; get r
+			set a, pop
+			set b, pop
+			jsr dist216v
+			set b, c
+.end:		set c, pop
+			set pc, pop
+
+;p2c16
+; polar to 2D cartesian coordinates conversion
+;
+; in  A,B: r,theta 16bits polar coordinates
+; out A,B: x,y signed 16bits cartesian coordinates
+;
+; uses 8 words from stack
+;
+; 22 words / 100-140 cycles
+#segment code
+p2c16:
+			set push, a			; [SP+1]=r
+			set push, a			; [SP]=r
+			set a, b
+			jsr sin16
+			_mlifp16(a, peek)	; A=y=sin(theta)*r
+			set peek, b
+			set b, a			; B=y
+			set a, pop
+			jsr cos16
+			_mlifp16(peek, a)	; [SP]=x=cos(theta)*r
+			set a, pop			; A=x
+.end:		set pc, pop			
+
+
+;c2s16
+; 3D cartesian to spherical coordinates conversion
+;
+; in  A: address of (x,y,z) signed 16bits cartesian coordinates
+; in  B: address of (r,theta,phi) 16bits spherical coordinates (theta is (x,y) azimuth, phi is elevation angle)
+; out [B]
+;
+; A, B clobbered
+; uses 11 words from stack
+;
+; 32 words / 422-538+... cycles
+#segment code
+c2s16:		set push, y
+			set push, x
+			set x, a
+			set y, b
+			; get r
+			set a, [x]
+			set b, [x+1]
+			set push, [x+2]
+			jsr dist316v
+			set [y], a
+			; get theta
+			set a, [x]
+			set b, [x+1]
+			jsr atan216
+			set [y+1], a
+			; get phi
+			set a, [x]
+			set b, [x+1]
+			jsr dist216v
+			set b, pop
+			jsr atan216
+			set [y+2], a
+.end:		set x, pop
+			set y, pop
+			set pc, pop
+
+
+;s2c16
+; spherical to 3D cartesian coordinates conversion
+;
+; in  A: address of (r,theta,phi) 16bits spherical coordinates (theta is (x,y) azimuth, phi is elevation angle)
+; in  B: address of (x,y,z) signed 16bits cartesian coordinates
+; out [B]
+;
+; A, B clobbered
+; uses 9 words from stack
+;
+; 52 words / 215-280 cycles
+#segment code
+s2c16:		set push, y
+			set push, x
+			set x, a
+			set push, [x]
+			set a, [x+2]
+			jsr cos16
+			set push, a
+			_mlifp16(peek, [x])	; [SP]=r*cos(phi)
+			set y, b			; Y=x
+			set [y], peek		; x=r*cos(phi)
+			set a, [x+1]
+			jsr cos16
+			_mlifp16([y], a)	; x*=cos(theta)
+			add y, 1			; Y=y
+			set [y], pop		; y=r*cos(phi)
+			set a, [x+1]
+			jsr sin16
+			_mlifp16([y], a)	; y*=sin(theta)
+			add y, 1			; Y=z
+			set a, [x+2]
+			jsr sin16
+			set [y], a			; z=sin(phi)
+			set [x], peek
+			_mlifp16([y], [x])	; z*=r
+.end:		set [x], pop
+			set x, pop
+			set y, pop
+			set pc, pop
+
+
+;pe2s16
+; 16bits polar to spherical coordinates conversion 
+; through rotation from euler angles defined in the spherical basis :
+; r=r
+;	u=cos(th+c), v=sin(th+c)cos(b), w=sin(th+c)sin(b)
+; th=a+atan2(u,v)
+; ph=atan2(distv(u,v), w)
+;
+; in  A: address of (r,theta) 16bits polar coordinates
+; in  B: address of (r,theta,phi) 16bits spherical coordinates (theta is (x,y) azimuth, phi is elevation angle from (x,y) plane)
+; in  [SP+1]: address of (alpha,beta,gamma) 16bits euler angles
+; out [B]
+;
+; A, B clobbered
+; uses 13 words from stack
+;
+; 60 words / 480-630 cycles
+#segment code
+pe2s16:		set push, i
+			set push, j
+			set push, c
+			set c, pick 4		; C=euler
+			set i, a
+			set j, b
+			sti [j], [i]		; rs=rp
+			set a, [c+2]
+			add a, [i]			; A=thp+c
+			set push, a			; save thp+c
+			jsr sin16
+			set push, a			; save sin(thp+c)
+			set a, [c+1]
+			jsr cos16
+			set b, peek
+			_mlifp16(b,a)		; B=sin(thp+c)*cos(b)
+			set push, b			; save sin(thp+c)*cos(b)
+			set a, pick 2
+			jsr cos16			; A=cos(thp+c)
+			set push, a			; save cos(thp+c)
+			jsr atan216
+			set [j], a			; ths=atan2(cos(thp+c), sin(thp+c)*cos(b))
+			add [j], [c]		; ths+= a
+			set a, pop
+			set b, pop
+			jsr dist216v		; A=dist(cos(thp+c), sin(thp+c)*cos(b))
+			set b, pop
+			set push, a
+			set a, [c+1]
+			jsr sin16
+			_mlifp16(b,a)		; B=sin(thp+c)*sin(b)
+			set a, pop
+			jsr atan216
+			set [j+1], a		; phs=atan2(dist(cos(thp+c), sin(thp+c)*cos(b)), sin(thp+c)sin(b))
+			add sp, 1			; clean stack
+.end:		set c, pop
+			set j, pop
+			set i, pop
+			set pc, pop
+;pe2s16pc
+; version using precalculated sin(beta)&cos(beta)
+;
+; in  A: address of (r,theta) 16bits polar coordinates
+; in  B: address of (r,theta,phi) 16bits spherical coordinates (theta is (x,y) azimuth, phi is elevation angle from (x,y) plane)
+; in  [SP+1]: address of (alpha,beta,gamma,sin,cos) 16bits euler angles
+; out [B]
+;
+; A, B clobbered
+; uses 13 words from stack
+;
+; 46 words / 400-510 cycles
+#segment code
+pe2s16pc:	set push, i
+			set push, j
+			set push, c
+			set c, pick 4		; C=euler
+			set i, a
+			set j, b
+			sti [j], [i]		; rs=rp
+			set a, [c+2]
+			add a, [i]			; A=thp+c
+			set push, a			; save thp+c
+			jsr sin16
+			set push, a			; save sin(thp+c)
+			set a, [c+4]
+			set b, peek
+			_mlifp16(b,a)		; B=sin(thp+c)*cos(b)
+			set push, b			; save sin(thp+c)*cos(b)
+			set a, pick 2
+			jsr cos16			; A=cos(thp+c)
+			set push, a			; save cos(thp+c)
+			jsr atan216
+			set [j], a			; ths=atan2(cos(thp+c), sin(thp+c)*cos(b))
+			add [j], [c]		; ths+= a
+			set a, pop
+			set b, pop
+			jsr dist216v		; A=dist(cos(thp+c), sin(thp+c)*cos(b))
+			set b, pop
+			set push, a
+			set a, [c+3]
+			_mlifp16(b,a)		; B=sin(thp+c)*sin(b)
+			set a, pop
+			jsr atan216
+			set [j+1], a		; phs=atan2(dist(cos(thp+c), sin(thp+c)*cos(b)), sin(thp+c)sin(b))
+			add sp, 1			; clean stack
+.end:		set c, pop
+			set j, pop
+			set i, pop
+			set pc, pop
+
+

@@ -1,0 +1,204 @@
+; --------------------------------------------
+; Title:   lemdsp
+; Author:  kirinyaga
+; Date:    26/06/2012
+; Version: 1.5 included calls in stack & timing
+; Version: 1.0
+; --------------------------------------------
+; Functions:
+; init_LEM1802 () POST
+; LEM_SETCURSOR macro to move cursor
+; print_str (A->) print cstring
+; print_hexa (A->) print an hexa number
+; print_angle (A->) print an angle
+; Memory:
+; 657 words
+; --------------------------------------------
+
+
+
+
+; Nya Elektrikska LEM 1802 Monitor
+#define LEM1802_MEM_MAP_SCREEN		0
+#define LEM1802_MEM_MAP_FONT		1
+#define LEM1802_MEM_MAP_PALETTE		2
+#define LEM1802_SET_BORDER_COLOR	3
+#define LEM1802_MEM_DUMP_FONT		4
+#define LEM1802_MEM_DUMP_PALETTE	5
+
+
+#define LEM1802_LINESIZE	32
+#define LEM1802_LINECOUNT	12
+#define LEM1802_BUFFSIZE	(LEM1802_LINESIZE*LEM1802_LINECOUNT)
+
+#macro LEM_SETCURSOR(lin,col) {
+	set [cursor], (LEM_BUFFER+(LEM1802_LINESIZE*lin)+col)
+}
+
+
+; init_LEM1802
+; called by POST
+#segment boot
+init_LEM1802:
+			; set font
+			set a, LEM1802_MEM_MAP_FONT
+			set b, LEM_greekfont
+			hwi i
+			; set initial screen
+			set a, LEM_BUFFER
+			set b, LEM1802_BUFFSIZE
+			set push, LEM_GENERALCOLOR
+			jsr memor
+			set a, (LEM_BUFFER+(LEM1802_LINESIZE*0))
+			set b, LEM1802_LINESIZE
+			set peek, LEM_TITLECOLOR
+			set push, 0x007F
+			jsr memsb
+			set a, (LEM_BUFFER+(LEM1802_LINESIZE*3))
+			set b, LEM1802_LINESIZE
+			jsr memsb
+			set a, (LEM_BUFFER+(LEM1802_LINESIZE*8))
+			set b, LEM1802_LINESIZE
+			jsr memsb
+			add sp, 2
+			; display initial screen
+			set a, LEM1802_MEM_MAP_SCREEN
+			set b, LEM_BUFFER
+			hwi i
+			set pc, peek
+
+
+
+; --------------------------------------------
+; print routines
+; uses [cursor] to set position on screen
+; in A: what to print
+; A clobbered
+; --------------------------------------------
+
+;print_str
+; print a zero-terminated string on screen at position
+; currently pointed to by [cursor]. Use GENERAL colors.
+; 2 words on stack / 15 words / 12+11*len cycles
+#segment code
+print_str:	set push, b
+			set b, [cursor]
+			set pc, .pool
+.loop:		set [b], [a]
+			bor [b], LEM_GENERALCOLOR
+			add b, 1
+			add a, 1
+.pool:		ifn [a], 0
+				set pc, .loop
+			set b, pop
+			set pc, pop
+			
+;print_hexa
+; print a word on screen as a 4-digits hexa value at position
+; currently pointed to by [cursor]. Use VALUE colors.
+; 3 words on stack / 26 words / 30 cycles
+#segment code
+print_hexa: set push, b
+			set b, [cursor]
+			; 1st digit
+			set push, a
+			shr a, 12
+			set [b], [a+LEM_digits]
+			; 2nd digit
+			set a, peek
+			shr a, 8
+			and a, 15
+			set [b+1], [a+LEM_digits]
+			; 3rd digit
+			set a, peek
+			shr a, 4
+			and a, 15
+			set [b+2], [a+LEM_digits]
+			; 4th digit
+			set a, pop
+			and a, 15
+			set [b+3], [a+LEM_digits]
+			set b, pop
+			set pc, pop
+
+			
+;print_angle
+; print a word on screen as a 5-digits relative angle in degrees (+XXX°) at position
+; currently pointed to by [cursor]. Use VALUE colors.
+; 3 words on stack / 41 words / 45-52 cycles
+#segment code
+print_angle:set push, b
+			set b, [cursor]
+			div a, 182		; radians->degrees
+			ifl a, 181
+				set pc, .possign
+.negsign:	set [b], (LEM_VALUECOLOR+0x2D)
+			xor a, -1
+			add a, 360
+			set pc, .digits
+.possign:	set [b], (LEM_VALUECOLOR+0x2B)
+.digits:	; 1st digit
+			set push, a
+			mod peek, 100
+			div a, 100
+			set [b+1], [a+LEM_digits]
+			; 2nd digit
+			set a, peek
+			mod peek, 10
+			div a, 10
+			set [b+2], [a+LEM_digits]
+			; 3rd digit
+			set a, pop
+			set [b+3], [a+LEM_digits]
+			; degree
+			set [b+4], (LEM_VALUECOLOR+0x7F)
+			set b, pop
+			set pc, pop
+
+
+
+#define LEM_GENERALCOLOR	0x7000
+#define LEM_VALUECOLOR		0x2000
+#define LEM_TITLECOLOR		0x6000
+
+#segment text
+LEM_digits:
+dat (LEM_VALUECOLOR+0x30), (LEM_VALUECOLOR+0x31), (LEM_VALUECOLOR+0x32), (LEM_VALUECOLOR+0x33)
+dat (LEM_VALUECOLOR+0x34), (LEM_VALUECOLOR+0x35), (LEM_VALUECOLOR+0x36), (LEM_VALUECOLOR+0x37)
+dat (LEM_VALUECOLOR+0x38), (LEM_VALUECOLOR+0x39), (LEM_VALUECOLOR+0x41), (LEM_VALUECOLOR+0x42)
+dat (LEM_VALUECOLOR+0x43), (LEM_VALUECOLOR+0x44), (LEM_VALUECOLOR+0x45), (LEM_VALUECOLOR+0x46)
+
+LEM_greekfont:
+dat	0x3844, 0x7c00, 0x7e25, 0x1a00, 0x0c70, 0x0c00, 0x3c4a, 0x3100, 0x2854, 0x4400, 0x3845, 0xc200, 0x7c08, 0xf800, 0x3854, 0x3800
+dat	0x0074, 0x4000, 0x7c10, 0x6c00, 0x730c, 0x7000, 0xfc20, 0x1c00, 0x7c40, 0x3c00, 0x344b, 0xc200, 0x7c04, 0x7c00, 0x78a4, 0x1800
+dat	0x384c, 0x3400, 0x047c, 0x4400, 0x10fc, 0x1c00, 0x38fc, 0x3800, 0x7f01, 0x0100, 0x7c43, 0x7c00, 0x7c03, 0x7c00, 0x4149, 0x4100
+dat	0x7f01, 0x7f00, 0x6355, 0x4900, 0x087f, 0x0e00, 0x0e7f, 0x0e00, 0x5e21, 0x5e00, 0xc0c0, 0xc0c0, 0xf0f0, 0xf0f0, 0xfcfc, 0xfcfc
+dat	0x0000, 0x0000, 0x005f, 0x0000, 0x0300, 0x0300, 0x3e14, 0x3e00, 0x266b, 0x3200, 0x611c, 0x4300, 0x3629, 0x7650, 0x0002, 0x0100
+dat	0x1c22, 0x4100, 0x4122, 0x1c00, 0x1408, 0x1400, 0x081c, 0x0800, 0x4020, 0x0000, 0x0808, 0x0800, 0x0040, 0x0000, 0x601c, 0x0300
+dat	0x3e49, 0x3e00, 0x427f, 0x4000, 0x6259, 0x4600, 0x2249, 0x3600, 0x0f08, 0x7f00, 0x2745, 0x3900, 0x3e49, 0x3200, 0x6119, 0x0700
+dat	0x3649, 0x3600, 0x2649, 0x3e00, 0x0024, 0x0000, 0x4024, 0x0000, 0x0814, 0x2200, 0x1414, 0x1400, 0x2214, 0x0800, 0x0259, 0x0600
+dat	0x3e59, 0x5e00, 0x7e09, 0x7e00, 0x7f49, 0x3600, 0x3e41, 0x2200, 0x7f41, 0x3e00, 0x7f49, 0x4100, 0x7f09, 0x0100, 0x3e41, 0x7a00
+dat	0x7f08, 0x7f00, 0x417f, 0x4100, 0x2040, 0x3f00, 0x7f08, 0x7700, 0x7f40, 0x4000, 0x7f06, 0x7f00, 0x7f01, 0x7e00, 0x3e41, 0x3e00
+dat	0x7f09, 0x0600, 0x3e61, 0x7e00, 0x7f09, 0x7600, 0x2649, 0x3200, 0x017f, 0x0100, 0x3f40, 0x7f00, 0x1f60, 0x1f00, 0x7f30, 0x7f00
+dat	0x7708, 0x7700, 0x0778, 0x0700, 0x7149, 0x4700, 0x007f, 0x4100, 0x031c, 0x6000, 0x417f, 0x0000, 0x0201, 0x0200, 0x8080, 0x8000
+dat	0x0001, 0x0200, 0x2454, 0x7800, 0x7f44, 0x3800, 0x3844, 0x2800, 0x3844, 0x7f00, 0x3854, 0x5800, 0x087e, 0x0900, 0x4854, 0x3c00
+dat	0x7f04, 0x7800, 0x047d, 0x0000, 0x2040, 0x3d00, 0x7f10, 0x6c00, 0x017f, 0x0000, 0x7c18, 0x7c00, 0x7c04, 0x7800, 0x3844, 0x3800
+dat	0x7c14, 0x0800, 0x0814, 0x7c00, 0x7c04, 0x0800, 0x4854, 0x2400, 0x043e, 0x4400, 0x3c40, 0x7c00, 0x1c60, 0x1c00, 0x7c30, 0x7c00
+dat	0x6c10, 0x6c00, 0x4c50, 0x3c00, 0x6454, 0x4c00, 0x0836, 0x4100, 0x0077, 0x0000, 0x4136, 0x0800, 0x0201, 0x0201, 0x0205, 0x0200
+
+#segment data
+cursor:		dat LEM_BUFFER
+
+LEM_BUFFER:
+dat "Orbital Plane Elements          "
+dat "l.asc.node=+000 inclinat.=+000"
+dat " arg.peri.=+000    sin(i)=0000 "
+dat "Elliptic Orbit Elements         "
+dat "maj.axis/2=0000 excentric.=0000 "
+dat "min.axis/2=0000 lat.rec./2=0000 "
+dat "  apoapsis=0000  periapsis=0000 "
+dat "    period=0000      dArea=0000 "
+dat "Orbital Position                "
+dat "   anomaly=+000    radius=0000 "
+dat " ang.speed=+000                "
+dat "   azimuth=+000 elevation=+000"

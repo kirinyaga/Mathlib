@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<solution>
+  <name>MathLib</name>
+  <properties>
+    <property name="emuLoad.projectName">Env</property>
+    <property name="emuLoadMode">project</property>
+  </properties>
+  <projects>
+    <project path="Env\Env.10cproj" />
+    <project path="Lib\Lib.10cproj" />
+  </projects>
+</solution>
